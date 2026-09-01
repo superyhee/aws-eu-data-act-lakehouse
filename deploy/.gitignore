@@ -1,0 +1,14 @@
+node_modules/
+cdk.out/
+cdk.context.json
+cdk-outputs-*.json
+*.js
+*.d.ts
+.m2/
+assets/flink/target/
+# Maven 在容器内 HOME 未设置时误建的本地仓库目录
+assets/flink/?/
+__pycache__/
+*.pyc
+.DS_Store
+*.log

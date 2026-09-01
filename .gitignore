@@ -1,0 +1,48 @@
+# ---------------------------------------------------------------------------
+# 本文件是仓库根的 .gitignore。deploy/ 下另有一份覆盖 CDK 构建产物的规则。
+#
+# 这里刻意把「含真实资源标识符的运行产物」单独列出并加注释：
+# 这些文件在本地是有用的排查材料，但一旦进入公开仓库历史就很难彻底移除。
+# ---------------------------------------------------------------------------
+
+# 运行日志 —— 含真实账号 ID、ARN、Cognito 池 ID、API 端点与 Cognito sub
+*.log
+
+# CDK 栈输出与上下文缓存 —— 含真实账号 ID、集群 ARN、API 端点
+cdk-outputs-*.json
+cdk.context.json
+cdk.out/
+
+# 依赖与构建产物
+node_modules/
+.m2/
+target/
+*.tsbuildinfo
+
+# Python 字节码 —— .pyc 内嵌构建机的绝对路径（会泄露用户名）
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# 编辑器与 AI 助手的本地配置
+.claude/
+.vscode/
+.idea/
+*.swp
+
+# 操作系统产物
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+desktop.ini
+
+# 本地环境变量与凭证 —— 不应存在于本仓库，列出以防误提交
+.env
+.env.*
+*.pem
+*.key
+*.p12
+credentials

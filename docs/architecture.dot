@@ -1,0 +1,31 @@
+digraph fig1 {
+  rankdir=TB; bgcolor="white"; compound=true;
+  graph [fontname="Helvetica", fontsize=11, nodesep=0.45, ranksep=0.55];
+  node  [fontname="Helvetica", fontsize=10, shape=box, style="rounded,filled",
+         fillcolor="#F2F6FB", color="#5A7A9E", penwidth=1.2, margin="0.20,0.11"];
+  edge  [fontname="Helvetica", fontsize=9, color="#5A7A9E", arrowsize=0.7];
+
+  vehicle [label="车辆终端\nVIN 作为分区键", fillcolor="#FFFFFF", color="#888888"];
+  msk     [label="Amazon MSK Serverless\ntopic: vehicle-telemetry · 100 分区 · IAM 认证"];
+  flink   [label="Amazon Managed Service for Apache Flink\ncheckpoint 5 分钟 · 并行度按吞吐推导"];
+  s3      [label="Amazon S3\nwarehouse/vehicle_telemetry/\nmetadata/  +  data/event_time_day=…/*.parquet", fillcolor="#EAF3E6", color="#5B8C46"];
+  trail   [label="AWS CloudTrail\nS3 数据事件（审计）", fillcolor="#FFFFFF", color="#888888"];
+  glue    [label="AWS Glue Data Catalog\nIceberg catalog · 元数据指针", fillcolor="#EAF3E6", color="#5B8C46"];
+  athena  [label="Amazon Athena\n查询 · UNLOAD 导出"];
+  maint   [label="AWS Glue ETL 维护作业\nbootstrap · compact · expire · orphan · stats · erasure", fillcolor="#FBF3E6", color="#B4832F"];
+  api     [label="Data Act API\nCognito · API Gateway · Lambda · DynamoDB", fillcolor="#FBF3E6", color="#B4832F"];
+
+  vehicle -> msk;
+  msk   -> flink [label=" 消费"];
+  flink -> s3    [label=" ① 写 Parquet 文件"];
+  flink -> glue  [label=" ② 提交快照"];
+  s3    -> trail [label=" 数据事件", style=dashed];
+  glue  -> athena [label=" 读表元数据"];
+  glue  -> maint  [dir=back, label=" 定时维护"];
+  api   -> athena [label=" 查询 / 导出"];
+  api   -> maint  [label=" 按需触发擦除"];
+
+  { rank=same; s3; trail; }
+  { rank=same; athena; maint; }
+  athena -> api [style=invis];
+}

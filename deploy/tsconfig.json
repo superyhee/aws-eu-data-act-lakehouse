@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "lib": ["ES2022"],
+    "declaration": true,
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "noImplicitThis": true,
+    "alwaysStrict": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": false,
+    "inlineSourceMap": true,
+    "inlineSources": true,
+    "experimentalDecorators": true,
+    "strictPropertyInitialization": false,
+    "typeRoots": ["./node_modules/@types"],
+    "types": ["node"],
+    // aws-cdk-lib 内部的 core/lib/private/perf.d.ts 用到了 Disposable，
+    // 该类型属于 esnext.disposable，不在上面的 lib: ["ES2022"] 里。
+    // 不跳过第三方声明检查时，这一个错误会连带让 @types/node 的全局声明
+    // （process / __dirname / console / path）全部解析失败，报出 20+ 个
+    // 与本项目代码无关的错误，并让 deploy.sh 的编译门禁失败。
+    // skipLibCheck 只跳过 .d.ts 的检查，本项目自身代码的类型检查不受影响；
+    // 这也是 cdk init 生成的模板默认带上该选项的原因。
+    "skipLibCheck": true
+  },
+  "include": ["bin/**/*.ts", "lib/**/*.ts", "config/**/*.ts"],
+  "exclude": ["node_modules", "cdk.out", "assets"]
+}
