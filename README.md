@@ -1,16 +1,17 @@
-# 满足 EU Data Act 的车联网数据湖：用 Apache Iceberg 实现按 VIN 物理擦除
+# 面向 EU Data Act 的车联网数据湖：用 Apache Iceberg 构建按 VIN 删除链路
 
 一套可部署的参考实现：用 **Apache Iceberg** 在 **Amazon S3** 上构建车联网遥测数据湖，
 并把 EU Data Act 与 GDPR 的四项数据主体权利落成具体的 API 端点与后台作业。
 
 核心问题是一个结构性矛盾：监管要求能够按车辆唯一标识（Vehicle Identification Number，
 VIN）删除单辆车的全部数据，而存储与查询效率要求不要为此把数据按 VIN 打散。本方案用
-**时间分区 + Iceberg 行级删除** 同时满足两者，按 VIN 的物理擦除可在**分钟级**完成。
+**时间分区 + Iceberg 行级删除** 同时满足两者，并为按 VIN 的删除与外围副本清理
+提供可编排、可验证的基础。
 
 > **`DELETE` 执行成功，并不等于数据已被擦除。** 这是本方案要解决的关键问题：
 > Amazon Athena 的 `DELETE` 恒为 merge-on-read，只写标记文件而不重写数据；
-> 真正的物理擦除放在 AWS Glue 侧，靠表属性 `write.delete.mode=copy-on-write`
-> 加上即时 `expire_snapshots` 完成。
+> AWS Glue 侧用 `write.delete.mode=copy-on-write` 重写当前数据文件；历史快照、
+> Flink 恢复状态、Kafka、导出对象和日志必须由独立删除编排继续处理。
 
 ---
 
@@ -32,14 +33,15 @@ VIN）删除单辆车的全部数据，而存储与查询效率要求不要为�
 
 | 技术能力 | 对应义务 | 关键机制 |
 | --- | --- | --- |
-| 按车辆精准读取 | Data Act Art. 4；GDPR Art. 15 | 时间分区剪枝 + `vin` 列 Bloom Filter + sort compaction 收紧列统计 |
+| 按车辆精准读取 | Data Act Art. 4；GDPR Art. 15 | 时间分区剪枝 + sort compaction 收紧 `vin` 列统计 + 扫描字节验证 |
 | 完整导出 | GDPR Art. 20 | Athena `UNLOAD` + 预签名 URL；参数化查询避免注入面 |
 | 精准共享 | Data Act Art. 5、Art. 6 | `role` 区分车主与第三方 + `allowed_signals` 行级过滤 + `expires_at` 到期 |
-| 精准物理擦除 | GDPR Art. 17 | `write.delete.mode=copy-on-write` + 即时 `expire_snapshots` |
+| 删除链路 | GDPR Art. 17 | copy-on-write 当前表删除 + 协调后的快照与外围副本清理 |
 | 可追溯 | GDPR Art. 30 | AWS CloudTrail 数据事件 + Iceberg `$snapshots` 历史 |
 
 > 本仓库讨论技术实现，**不构成法律意见**。条款的适用范围、豁免情形与合规判定请咨询
-> 专业法律顾问。本方案主张的是「技术上能够按 VIN 物理擦除数据」，而不是「使你合规」。
+> 专业法律顾问。本方案主张的是「提供按 VIN 定位、重写和编排清理的技术基础」，
+> 而不是「使你合规」。
 
 ---
 
@@ -85,8 +87,8 @@ IOV_ENABLE_ADMIN_AUTH=1 ./deploy.sh          # 启用 ADMIN_USER_PASSWORD_AUTH
 IOV_TEST_PASSWORD='<你自己的强口令>' ./validate-api.sh
 ```
 
-> ⚠️ `validate-api.sh` 会**真实触发一次按 VIN 的物理擦除**，被选中那辆车的数据会
-> 不可恢复地消失。仅在验证环境运行。脚本不提供默认口令——原因见文件头注释。
+> ⚠️ `validate-api.sh` 会真实触发一次按 VIN 的 copy-on-write 删除，被选中车辆会
+> 从当前表状态中消失；历史快照仍需单独协调清理。仅在验证环境运行。
 
 **数据可见延迟等于 checkpoint 间隔（默认 5 分钟）。** Iceberg 只在 checkpoint 提交时
 才产生新快照，刚部署完立刻查表得到 0 行是正常的，不是故障。
@@ -141,10 +143,10 @@ scripts/preflight-public.sh    公开发布前自检：凭证、真实标识符�
 
 - **VIN 不以明文进入日志。** `mask_vin()` 只保留后四位；SQL 文本在写日志前经 `redact()`
   脱敏。Amazon CloudWatch Logs 会保留数月，明文 VIN 一旦写入等于把个人数据复制到第二处存储。
-- **warehouse 桶不启用版本控制。** copy-on-write 重写完成物理擦除后，若桶启用版本控制，
-  被删数据会以非当前版本继续保留。审计桶的要求相反，需要防篡改，因此启用版本控制。
+- **warehouse 桶不启用版本控制。** copy-on-write 重写后，若桶启用版本控制，
+  旧数据会以非当前版本继续保留并扩大删除范围。审计桶的要求相反，需要防篡改，因此启用版本控制。
 - **不要对 Iceberg 数据启用 Amazon S3 归档存储层。** 归档对象需先 `RestoreObject` 才能读取，
-  而按 VIN 的物理擦除必须能重写这些文件。
+  而按 VIN 的当前表删除必须能重写这些文件。
 - **示例数据全部为合成数据。** VIN 使用刻意非厂商的前缀 `SAMPLEVEH0`，邮箱使用
   `@example.com`（RFC 2606 保留域）。
 - **不要提交运行产物。** `.gitignore` 排除了 `*.log`、`cdk-outputs-*.json` 与
